@@ -1,9 +1,5 @@
 package importData
 
-import "server/config"
-
-var cfgs *config.Configs = config.NewConfig()
-
 type ImportRequest struct {
 	Index Index `json:"index"`
 }

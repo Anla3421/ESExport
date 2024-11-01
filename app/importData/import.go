@@ -2,6 +2,7 @@ package importData
 
 import (
 	"bytes"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -9,12 +10,13 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"server/config"
 )
 
 func Import() {
 	// 使用 Glob 來匹配所有 .json 檔案
 	log.Println("import start")
-	files, err := filepath.Glob(filepath.Join(cfgs.ImportPath, "*.json"))
+	files, err := filepath.Glob(filepath.Join(config.Cfgs.ImportPath, "*.json"))
 	if err != nil {
 		log.Fatalf("glob fail: %v", err)
 	}
@@ -40,20 +42,62 @@ func Import() {
 		for k, v := range hit {
 			jsonMap[k] = v
 			// 每 x 筆先 espost，後清空 jsonMap 再繼續塞入
-			// if k >= cfgs.ImportSize-1 {
-			// 	log.Println("先行匯入")
-			// 	ExecImportDataByBulk(jsonMap)
-			// 	// ExecImportData(jsonMap)
-			// 	jsonMap = map[int]Hit{}
-			// }
+			if k >= config.Cfgs.ImportSize-1 {
+				ExecImportData(jsonMap)
+				jsonMap = map[int]Hit{}
+			}
 		}
 	}
-	log.Println("最後匯入2")
-	ExecImportDataByBulk(jsonMap)
-	// ExecImportData(jsonMap)
+	ExecImportData(jsonMap)
 	log.Println("import finish")
 }
 
+func ExecImportData(jsonMap map[int]Hit) {
+	for _, v := range jsonMap {
+		url := fmt.Sprintf("%s/%s/%s/%s", config.Cfgs.ImportESAddr, config.Cfgs.ImportIndex, "_doc", v.ID)
+		ESPost(v.Source, url)
+		// importRes := ESPost(v.Source, url)
+		// fmt.Printf("No.%v , importRes: %+v\n", i, importRes)
+	}
+}
+
+func ESPost(requestBody SourceData, url string) *ImportResponse {
+	jsonBody, err := json.Marshal(requestBody)
+	if err != nil {
+		log.Fatalf("Error encoding JSON: %v", err)
+	}
+
+	// 忽略證書驗證
+	http.DefaultTransport = &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+	}
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonBody))
+	if err != nil {
+		log.Fatalf("Error creating request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Fatalf("Error sending request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// 拿到資料的處理
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		log.Fatalf("Error reading response body: %v", err)
+	}
+
+	reutlt := &ImportResponse{}
+	if err := json.Unmarshal(body, &reutlt); err != nil {
+		log.Fatalf("Error decoding response JSON: %v", err)
+	}
+	return reutlt
+}
+
+// 實做尚未完成，body 會有沒有預期的錯誤產生
 func ExecImportDataByBulk(jsonMap map[int]Hit) {
 	// url := "http://10.85.1.220:30902/_bulk"
 	importReq := ``
@@ -75,55 +119,15 @@ func ExecImportDataByBulk(jsonMap map[int]Hit) {
 			log.Fatal("dataJSON marshal fail")
 		}
 		importReq += fmt.Sprintf(`%s
-%s
-`, indexJSON, dataJSON)
+	%s
+	`, indexJSON, dataJSON)
 	}
-	url := fmt.Sprintf("%s/_bulk", cfgs.ImportESAddr)
+
+	url := fmt.Sprintf("%s/_bulk", config.Cfgs.ImportESAddr)
 	fmt.Println("url", url)
 	fmt.Printf("%+v\n", importReq)
 
-	importRes := ESPost(importReq, url)
-	fmt.Printf("No. , importRes: %+v\n", importRes)
+	// importRes := ESPost(importReq, url)
+	// fmt.Printf("No. , importRes: %+v\n", importRes)
 	// ESPost(importReq, url)
-}
-
-// func ExecImportData(jsonMap map[int]Hit) {
-// 	for _, v := range jsonMap {
-// 		url := fmt.Sprintf("%s/%s/%s/%s", cfgs.ImportESAddr, v.Index, v.Type, v.ID)
-// 		ESPost(v.Source, url)
-// 		// importRes := ESPost(v.Source, url)
-// 		// fmt.Printf("No.%v , importRes: %+v\n", i, importRes)
-// 	}
-// }
-
-func ESPost(requestBody string, url string) *ImportResponse {
-	jsonBody, err := json.Marshal(requestBody)
-	if err != nil {
-		log.Fatalf("Error encoding JSON: %v", err)
-	}
-	fmt.Println("POST出去了，")
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonBody))
-	if err != nil {
-		log.Fatalf("Error creating request: %v", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		log.Fatalf("Error sending request: %v", err)
-	}
-	defer resp.Body.Close()
-
-	// 拿到資料的處理
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		log.Fatalf("Error reading response body: %v", err)
-	}
-	fmt.Printf("Raw response body:\n%s\n", body)
-	reutlt := &ImportResponse{}
-	if err := json.Unmarshal(body, &reutlt); err != nil {
-		log.Fatalf("Error decoding response JSON: %v", err)
-	}
-	return reutlt
 }

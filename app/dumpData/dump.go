@@ -15,30 +15,27 @@ import (
 
 var (
 	importData []Hit
-	cfgs       *config.Configs = config.NewConfig()
-	i          int             = 1
+	i          int = 1
 )
 
+// 戳 es 拿資料
 func Dump() {
 	log.Println("dump start")
-	// 戳 es 拿資料
-	// url := "http://10.85.1.218:30902/logs-2016*/"
-
-	// startDate := HandleIndexString(cfgs.DumpIndexStart)
-	// endDate := HandleIndexString(cfgs.DumpIndexEnd)
+	startDate := HandleIndexString(config.Cfgs.DumpIndexStart)
+	endDate := HandleIndexString(config.Cfgs.DumpIndexEnd)
 
 	option := "_search?ignore_unavailable=true&allow_no_indices=true&preference=_primary&"
 	scrollTime := "scroll=5m"
 	requestBody := map[string]interface{}{
-		"size": cfgs.DumpPostSize,
+		"size": config.Cfgs.DumpPostSize,
 		"query": map[string]interface{}{
 			"bool": map[string]interface{}{
 				"must": []map[string]interface{}{
 					{
 						"range": map[string]interface{}{
 							"startTime": map[string]string{
-								"gte": cfgs.DumpGte,
-								"lte": cfgs.DumpLte,
+								"gte": config.Cfgs.DumpGte,
+								"lte": config.Cfgs.DumpLte,
 							},
 						},
 					},
@@ -47,67 +44,23 @@ func Dump() {
 		},
 	}
 
-	// for date := startDate; !date.After(endDate); date = date.AddDate(0, 0, 1) {
-	// 	indexToDump := fmt.Sprintf("logs-%s", date.Format("2006.01.02"))
-	// 	url := fmt.Sprintf("%s/%s/%s%s", cfgs.DumpESAddr, indexToDump, option, scrollTime)
-	// 	scrollRes := ESPost(requestBody, url)
-	// 	HandleRemainData(scrollRes, indexToDump)
-	// }
+	for date := startDate; !date.After(endDate); date = date.AddDate(0, 0, 1) {
+		indexToDump := fmt.Sprintf("logs-%s", date.Format("2006.01.02"))
+		url := fmt.Sprintf("%s/%s/%s%s", config.Cfgs.DumpESAddr, indexToDump, option, scrollTime)
+		scrollRes := ESPost(requestBody, url)
+		HandleRemainData(scrollRes, indexToDump)
+	}
 
 	// 撈取 by 數量
-	url := fmt.Sprintf("%s/%s/%s%s", cfgs.DumpESAddr, "logs-*", option, scrollTime)
-	fmt.Println("url", url)
-	scrollRes := ESPost(requestBody, url)
-	HandleRemainDataByAmount(scrollRes)
-	log.Println("dump finish")
+	// url := fmt.Sprintf("%s/%s/%s%s", config.Cfgs.DumpESAddr, "logs-*", option, scrollTime)
+	// fmt.Println("url", url)
+	// scrollRes := ESPost(requestBody, url)
+	// HandleRemainDataByAmount(scrollRes)
+	// log.Println("dump finish")
 }
 
-// 匯入 by index，實作中
-// func HandleRemainData(scrollRes *ScrollResponse, index string) {
-// 	for k := range scrollRes.Hits.Hits {
-// 		resData := Hit{
-// 			Index:  scrollRes.Hits.Hits[k].Index,
-// 			Type:   scrollRes.Hits.Hits[k].Type,
-// 			ID:     scrollRes.Hits.Hits[k].ID,
-// 			Score:  scrollRes.Hits.Hits[k].Score,
-// 			Source: scrollRes.Hits.Hits[k].Source,
-// 		}
-// 		importData = append(importData, resData)
-// 	}
-
-// 	// scroll 完該 index 的資料後塞入 .json 檔，如果沒有資料則不產生檔案
-// 	if (len(scrollRes.Hits.Hits) == 0) && (len(importData) != 0) {
-// 		// json beauty
-// 		jsonData, err := json.MarshalIndent(importData, "", "    ")
-// 		if err != nil {
-// 			log.Fatalf("Error marshaling JSON: %v", err)
-// 		}
-// 		fileName := fmt.Sprintf("%s/%s.json", cfgs.DumpPath, index)
-// 		err = os.WriteFile(fileName, jsonData, 0644)
-// 		if err != nil {
-// 			log.Fatalf("Error writing to file %s: %v", fileName, err)
-// 		}
-// 		log.Printf("Data written to %s successfully.", fileName)
-// 		importData = []Hit{}
-// 	}
-
-// 	// 還有資料就繼續遞迴
-// 	if len(scrollRes.Hits.Hits) > 0 {
-// 		// 再次去戳 es 撈資料
-// 		url := fmt.Sprintf("%s/_search/scroll", cfgs.DumpESAddr)
-// 		requestBody := map[string]interface{}{
-// 			"scroll":    "5m",
-// 			"scroll_id": scrollRes.ScrollID,
-// 		}
-// 		scrollRes = ESPost(requestBody, url)
-// 		// time.Sleep(50 * time.Millisecond) // 測試用煞車，可以拔掉
-// 		HandleRemainData(scrollRes, index)
-// 	}
-// }
-
-// 匯入by筆數
-func HandleRemainDataByAmount(scrollRes *ScrollResponse) {
-	fmt.Println("scrollRes.Hits", scrollRes.Hits.Total)
+// 匯入 by index
+func HandleRemainData(scrollRes *ScrollResponse, index string) {
 	for k := range scrollRes.Hits.Hits {
 		resData := Hit{
 			Index:  scrollRes.Hits.Hits[k].Index,
@@ -118,16 +71,59 @@ func HandleRemainDataByAmount(scrollRes *ScrollResponse) {
 		}
 		importData = append(importData, resData)
 	}
-	// 滿 100 或撈不到東西就塞現有資料進去.json檔
-	// if len(importData) >= cfgs.DumpLenImportData || len(scrollRes.Hits.Hits) == 0 {
-	if len(scrollRes.Hits.Hits) == 0 {
+
+	// scroll 完該 index 的資料後塞入 .json 檔，如果沒有資料則不產生檔案
+	if (len(scrollRes.Hits.Hits) == 0) && (len(importData) != 0) {
+		// json beauty
+		jsonData, err := json.MarshalIndent(importData, "", "    ")
+		if err != nil {
+			log.Fatalf("Error marshaling JSON: %v", err)
+		}
+		fileName := fmt.Sprintf("%s/%s.json", config.Cfgs.DumpPath, index)
+		err = os.WriteFile(fileName, jsonData, 0644)
+		if err != nil {
+			log.Fatalf("Error writing to file %s: %v", fileName, err)
+		}
+		log.Printf("Data written to %s successfully.", fileName)
+		importData = []Hit{}
+	}
+
+	// 還有資料就繼續遞迴
+	if len(scrollRes.Hits.Hits) > 0 {
+		// 再次去戳 es 撈資料
+		url := fmt.Sprintf("%s/_search/scroll", config.Cfgs.DumpESAddr)
+		requestBody := map[string]interface{}{
+			"scroll":    "5m",
+			"scroll_id": scrollRes.ScrollID,
+		}
+		scrollRes = ESPost(requestBody, url)
+		// time.Sleep(50 * time.Millisecond) // 測試用煞車，可以拔掉
+		HandleRemainData(scrollRes, index)
+	}
+}
+
+// 匯入 by 筆數
+func HandleRemainDataByAmount(scrollRes *ScrollResponse) {
+	for k := range scrollRes.Hits.Hits {
+		resData := Hit{
+			Index:  scrollRes.Hits.Hits[k].Index,
+			Type:   scrollRes.Hits.Hits[k].Type,
+			ID:     scrollRes.Hits.Hits[k].ID,
+			Score:  scrollRes.Hits.Hits[k].Score,
+			Source: scrollRes.Hits.Hits[k].Source,
+		}
+		importData = append(importData, resData)
+	}
+
+	// 滿 config.Cfgs.DumpLenImportData 筆或撈不到東西就塞現有資料進去.json檔
+	if len(importData) >= config.Cfgs.DumpLenImportData || len(scrollRes.Hits.Hits) == 0 {
 		// json beauty
 		jsonData, err := json.MarshalIndent(importData, "", "    ")
 		if err != nil {
 			log.Fatalf("Error marshaling JSON: %v", err)
 		}
 
-		fileName := fmt.Sprintf("%s/%d.json", cfgs.DumpPath, i)
+		fileName := fmt.Sprintf("%s/%d.json", config.Cfgs.DumpPath, i)
 		log.Println("fileName check...: ", fileName)
 
 		err = os.WriteFile(fileName, jsonData, 0644)
@@ -148,7 +144,7 @@ func HandleRemainDataByAmount(scrollRes *ScrollResponse) {
 			"scroll_id": scrollRes.ScrollID,
 		}
 		scrollRes = ESPost(requestBody, url)
-		time.Sleep(50 * time.Millisecond) // 測試用煞車，可以拔掉
+		// time.Sleep(50 * time.Millisecond) // 測試用煞車，可以拔掉
 		HandleRemainDataByAmount(scrollRes)
 	}
 }
