@@ -1,16 +1,13 @@
 package importData
 
 import (
-	"bytes"
-	"crypto/tls"
 	"encoding/json"
+	"estool/config"
+	"estool/delivery/esHttp"
 	"fmt"
-	"io"
 	"log"
-	"net/http"
 	"os"
 	"path/filepath"
-	"server/config"
 )
 
 func Import() {
@@ -54,52 +51,21 @@ func Import() {
 
 func ExecImportData(jsonMap map[int]Hit) {
 	for _, v := range jsonMap {
+		jsonBody, err := json.Marshal(jsonMap)
+		if err != nil {
+			log.Fatalf("Error encoding JSON: %v", err)
+		}
 		url := fmt.Sprintf("%s/%s/%s/%s", config.Cfgs.ImportESAddr, config.Cfgs.ImportIndex, "_doc", v.ID)
-		ESPost(v.Source, url)
-		// importRes := ESPost(v.Source, url)
+		esHttp.ESPost(jsonBody, url)
+
+		// debug use
+		// importRes := esHttp.ESPost(jsonBody, url)
 		// fmt.Printf("No.%v , importRes: %+v\n", i, importRes)
 	}
 }
 
-func ESPost(requestBody SourceData, url string) *ImportResponse {
-	jsonBody, err := json.Marshal(requestBody)
-	if err != nil {
-		log.Fatalf("Error encoding JSON: %v", err)
-	}
-
-	// 忽略證書驗證
-	http.DefaultTransport = &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-	}
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonBody))
-	if err != nil {
-		log.Fatalf("Error creating request: %v", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		log.Fatalf("Error sending request: %v", err)
-	}
-	defer resp.Body.Close()
-
-	// 拿到資料的處理
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		log.Fatalf("Error reading response body: %v", err)
-	}
-
-	reutlt := &ImportResponse{}
-	if err := json.Unmarshal(body, &reutlt); err != nil {
-		log.Fatalf("Error decoding response JSON: %v", err)
-	}
-	return reutlt
-}
-
 // 實做尚未完成，body 會有沒有預期的錯誤產生
 func ExecImportDataByBulk(jsonMap map[int]Hit) {
-	// url := "http://10.85.1.220:30902/_bulk"
 	importReq := ``
 	for _, v := range jsonMap {
 		indexData := ImportRequest{

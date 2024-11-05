@@ -1,5 +1,10 @@
 package dumpData
 
+var (
+	importData []Hit
+	i          int = 1
+)
+
 type ImportData struct {
 	Index      string `json:"_index"`
 	Type       string `json:"_type"`

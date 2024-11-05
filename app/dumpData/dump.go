@@ -1,21 +1,15 @@
 package dumpData
 
 import (
-	"bytes"
 	"encoding/json"
+	"estool/config"
+	"estool/delivery/esHttp"
 	"fmt"
-	"io"
 	"log"
-	"net/http"
 	"os"
-	"server/config"
+
 	"strings"
 	"time"
-)
-
-var (
-	importData []Hit
-	i          int = 1
 )
 
 // 戳 es 拿資料
@@ -47,7 +41,15 @@ func Dump() {
 	for date := startDate; !date.After(endDate); date = date.AddDate(0, 0, 1) {
 		indexToDump := fmt.Sprintf("logs-%s", date.Format("2006.01.02"))
 		url := fmt.Sprintf("%s/%s/%s%s", config.Cfgs.DumpESAddr, indexToDump, option, scrollTime)
-		scrollRes := ESPost(requestBody, url)
+		jsonBody, err := json.Marshal(requestBody)
+		if err != nil {
+			log.Fatalf("Error encoding JSON: %v", err)
+		}
+		reutlt := esHttp.ESPost(jsonBody, url)
+		scrollRes := &ScrollResponse{}
+		if err := json.Unmarshal(reutlt, &scrollRes); err != nil {
+			log.Fatalf("Error decoding response JSON: %v", err)
+		}
 		HandleRemainData(scrollRes, indexToDump)
 	}
 
@@ -96,8 +98,15 @@ func HandleRemainData(scrollRes *ScrollResponse, index string) {
 			"scroll":    "5m",
 			"scroll_id": scrollRes.ScrollID,
 		}
-		scrollRes = ESPost(requestBody, url)
-		// time.Sleep(50 * time.Millisecond) // 測試用煞車，可以拔掉
+		jsonBody, err := json.Marshal(requestBody)
+		if err != nil {
+			log.Fatalf("Error encoding JSON: %v", err)
+		}
+		reutlt := esHttp.ESPost(jsonBody, url)
+		scrollRes = &ScrollResponse{}
+		if err := json.Unmarshal(reutlt, &scrollRes); err != nil {
+			log.Fatalf("Error decoding response JSON: %v", err)
+		}
 		HandleRemainData(scrollRes, index)
 	}
 }
@@ -143,8 +152,15 @@ func HandleRemainDataByAmount(scrollRes *ScrollResponse) {
 			"scroll":    "5m",
 			"scroll_id": scrollRes.ScrollID,
 		}
-		scrollRes = ESPost(requestBody, url)
-		// time.Sleep(50 * time.Millisecond) // 測試用煞車，可以拔掉
+		jsonBody, err := json.Marshal(requestBody)
+		if err != nil {
+			log.Fatalf("Error encoding JSON: %v", err)
+		}
+		reutlt := esHttp.ESPost(jsonBody, url)
+		scrollRes = &ScrollResponse{}
+		if err := json.Unmarshal(reutlt, &scrollRes); err != nil {
+			log.Fatalf("Error decoding response JSON: %v", err)
+		}
 		HandleRemainDataByAmount(scrollRes)
 	}
 }
@@ -163,36 +179,4 @@ func HandleIndexString(IndexString string) time.Time {
 		return time.Time{}
 	}
 	return dateTime
-}
-
-func ESPost(requestBody map[string]interface{}, url string) *ScrollResponse {
-	jsonBody, err := json.Marshal(requestBody)
-	if err != nil {
-		log.Fatalf("Error encoding JSON: %v", err)
-	}
-
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonBody))
-	if err != nil {
-		log.Fatalf("Error creating request: %v", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		log.Fatalf("Error sending request: %v", err)
-	}
-	defer resp.Body.Close()
-
-	// 拿到資料的處理
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		log.Fatalf("Error reading response body: %v", err)
-	}
-
-	reutlt := &ScrollResponse{}
-	if err := json.Unmarshal(body, &reutlt); err != nil {
-		log.Fatalf("Error decoding response JSON: %v", err)
-	}
-	return reutlt
 }
