@@ -19,30 +19,31 @@ func Import() {
 	}
 	jsonMap := make(map[int]Hit)
 
-	for i, file := range files {
-		log.Printf("handling .json file No.%v...\n", i+1)
+	for _, file := range files {
+		log.Printf("handling %v...\n", file)
 		// 讀取每個 .json 檔案
 		data, err := os.ReadFile(file)
 		if err != nil {
-			log.Printf("readFile fail: %s: %v", file, err)
-			continue
+			log.Fatalf("readFile fail: %s: %v", file, err)
 		}
 
 		// 解析 JSON 資料到 Hit 結構
 		var hit []Hit
 		if err := json.Unmarshal(data, &hit); err != nil {
-			log.Printf("Unmarshal fail: %s: %v", file, err)
-			continue
+			log.Fatalf("Unmarshal fail: %s: %v", file, err)
 		}
 
 		// 將解析後的資料存入 map
+		i := 0
 		for k, v := range hit {
 			jsonMap[k] = v
-			// 每 x 筆先 espost，後清空 jsonMap 再繼續塞入
-			if k >= config.Cfgs.ImportSize-1 {
+			// 每 x 筆或是檔案讀完了，先 espost，後清空 jsonMap 再繼續塞入
+			if i >= config.Cfgs.ImportSize-1 || k == len(hit)-1 {
 				ExecImportData(jsonMap)
 				jsonMap = map[int]Hit{}
+				i = 0
 			}
+			i++
 		}
 	}
 	ExecImportData(jsonMap)
@@ -51,7 +52,7 @@ func Import() {
 
 func ExecImportData(jsonMap map[int]Hit) {
 	for _, v := range jsonMap {
-		jsonBody, err := json.Marshal(jsonMap)
+		jsonBody, err := json.Marshal(v.Source)
 		if err != nil {
 			log.Fatalf("Error encoding JSON: %v", err)
 		}
