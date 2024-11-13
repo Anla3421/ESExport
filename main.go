@@ -17,7 +17,7 @@ func main() {
 	// "1=匯入"
 	case 1:
 		log.Printf("mode=1, import data only to %s\n", config.Cfgs.ImportESAddr)
-		importData.Import()
+		importData.ImportByOpenSearchBulk()
 	// "2=匯出加匯入"
 	case 2:
 		log.Println("mode=2, dump data then import data")

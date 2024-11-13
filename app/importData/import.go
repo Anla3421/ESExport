@@ -1,6 +1,7 @@
 package importData
 
 import (
+	"bytes"
 	"encoding/json"
 	"estool/config"
 	"estool/delivery/esHttp"
@@ -8,6 +9,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"time"
 )
 
 func Import() {
@@ -61,7 +63,9 @@ func ExecImportData(jsonMap map[int]Hit) {
 
 		// debug use
 		// importRes := esHttp.ESPost(jsonBody, url)
-		// fmt.Printf("No.%v , importRes: %+v\n", i, importRes)
+		// fmt.Printf("importRes: %+v\n", importRes)
+
+		time.Sleep(50 * time.Millisecond)
 	}
 }
 
@@ -97,4 +101,101 @@ func ExecImportDataByBulk(jsonMap map[int]Hit) {
 	// importRes := ESPost(importReq, url)
 	// fmt.Printf("No. , importRes: %+v\n", importRes)
 	// ESPost(importReq, url)
+}
+
+// ImportByOpenSearchBulk 使用 OpenSearch bulk API 進行匯入
+func ImportByOpenSearchBulk() {
+	log.Println("import start with OpenSearch bulk API")
+	files, err := filepath.Glob(filepath.Join(config.Cfgs.ImportPath, "*.json"))
+	if err != nil {
+		log.Fatalf("glob fail: %v", err)
+	}
+
+	// 準備 bulk request
+	var bulkBody bytes.Buffer
+	count := 0
+
+	for _, file := range files {
+		log.Printf("handling %v...\n", file)
+		data, err := os.ReadFile(file)
+		if err != nil {
+			log.Fatalf("readFile fail: %s: %v", file, err)
+		}
+
+		var hits []Hit
+		if err := json.Unmarshal(data, &hits); err != nil {
+			log.Fatalf("Unmarshal fail: %s: %v", file, err)
+		}
+
+		for _, hit := range hits {
+			// 建立 action metadata
+			action := fmt.Sprintf(`{"index":{"_index":"%s","_id":"%s"}}`, config.Cfgs.ImportIndex, hit.ID)
+			bulkBody.WriteString(action + "\n")
+
+			// 建立 document body
+			docJSON, err := json.Marshal(hit.Source)
+			if err != nil {
+				log.Printf("Error marshaling document: %v", err)
+				continue
+			}
+			bulkBody.Write(docJSON)
+			bulkBody.WriteString("\n")
+
+			count++
+
+			// 當達到批次大小時執行 bulk request
+			if count >= config.Cfgs.ImportSize {
+				executeBulkRequest(&bulkBody)
+				bulkBody.Reset()
+				count = 0
+				time.Sleep(100 * time.Millisecond) // 避免過度頻繁請求
+			}
+		}
+	}
+
+	// 處理剩餘的文檔
+	if bulkBody.Len() > 0 {
+		executeBulkRequest(&bulkBody)
+	}
+
+	log.Println("import finish")
+}
+
+// executeBulkRequest 執行 bulk request
+func executeBulkRequest(bulkBody *bytes.Buffer) {
+	url := fmt.Sprintf("%s/_bulk?refresh=true", config.Cfgs.ImportESAddr)
+
+	// 使用已有的 ESPost 函數
+	resp := esHttp.ESPost(bulkBody.Bytes(), url)
+
+	// 解析回應
+	var bulkResponse struct {
+		Errors bool `json:"errors"`
+		Items  []struct {
+			Index struct {
+				Status int `json:"status"`
+				Error  struct {
+					Type   string `json:"type"`
+					Reason string `json:"reason"`
+				} `json:"error"`
+			} `json:"index"`
+		} `json:"items"`
+	}
+
+	if err := json.Unmarshal(resp, &bulkResponse); err != nil {
+		log.Printf("Error parsing bulk response: %v", err)
+		return
+	}
+
+	// 檢查錯誤
+	if bulkResponse.Errors {
+		for _, item := range bulkResponse.Items {
+			if item.Index.Status >= 400 {
+				log.Printf("Error indexing document: status=%d, type=%s, reason=%s",
+					item.Index.Status,
+					item.Index.Error.Type,
+					item.Index.Error.Reason)
+			}
+		}
+	}
 }
