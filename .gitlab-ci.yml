@@ -1,0 +1,42 @@
+ 
+stages:
+  - scan
+  - build
+
+scan:
+    image:
+        name: sonarsource/sonar-scanner-cli:4
+        entrypoint: ['']
+
+    variables:
+        SONAR_USER_HOME: '${CI_PROJECT_DIR}/.sonar' # Defines the location of the analysis task cache
+        GIT_DEPTH: '0' # Tells git to fetch all the branches of the project, required by the analysis task
+        GIT_STRATEGY: clone #clone entire repo instead of reusing workspace
+    stage: scan
+    cache:
+        key: '${CI_JOB_NAME}'
+        paths:
+            - .sonar/cache
+    script:
+        - sonar-scanner -Dsonar.qualitygate.wait=true -Dsonar.projectKey=$(echo $CI_PROJECT_PATH | sed "s/\//:/g")
+          -Dsonar.sources=. -Dsonar.projectName=${CI_PROJECT_PATH}
+          -Dsonar.projectVersion=${CI_COMMIT_TAG:-${CI_COMMIT_BRANCH}}-$CI_COMMIT_SHORT_SHA
+          -Dsonar.host.url=$SONAR_HOST_URL -Dsonar.login=$SONAR_TOKEN -Dsonar.scm.provider=git
+    allow_failure: true
+
+
+build:
+    image: docker
+    stage: build
+    before_script:
+        - docker login -u ${DOCKER_USER} -p ${DOCKER_PWD} ${DOCKER_REG}
+    script:
+        - |
+          DOCKER_TAG=${CI_COMMIT_TAG}
+          [[ -z "${DOCKER_TAG}" ]] && DOCKER_TAG=latest
+        - docker build -t ${DOCKER_REG}/inu/${CI_PROJECT_NAME}:${DOCKER_TAG} .
+        - docker push ${DOCKER_REG}/inu/${CI_PROJECT_NAME}:${DOCKER_TAG}
+        - docker tag ${DOCKER_REG}/inu/${CI_PROJECT_NAME}:${DOCKER_TAG} ${DOCKER_REG}/inu/${CI_PROJECT_NAME}:${CI_COMMIT_SHORT_SHA}
+        - docker push ${DOCKER_REG}/inu/${CI_PROJECT_NAME}:${CI_COMMIT_SHORT_SHA}
+    only:
+      - tags
