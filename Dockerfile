@@ -2,7 +2,7 @@ ARG GO_VERSION="1.22"
 ARG ALPINE_VERSION="3.20"
 
 FROM golang:${GO_VERSION}-alpine${ALPINE_VERSION} AS builder
-ENV GOPROXY="http://xxxx/"
+ENV GOPROXY="http://ci.grandsys.com:90/"
 ENV GO111MODULE="on"
 ADD . /src
 WORKDIR /src

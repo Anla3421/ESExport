@@ -34,6 +34,7 @@ type Hit struct {
 }
 
 type SourceData struct {
+	DocType              string   `json:"docType"`
 	Customer0            string   `json:"customer0"`
 	Agent0               string   `json:"agent0"`
 	Dialogs              string   `json:"dialogs"`

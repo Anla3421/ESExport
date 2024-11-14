@@ -275,12 +275,17 @@ func HandleBatchData(scrollRes *ScrollResponse, index string) {
 
 	// 處理第一批資料
 	for k := range scrollRes.Hits.Hits {
+		// 先複製原始的 Source 數據
+		source := scrollRes.Hits.Hits[k].Source
+		// 設置 DocType
+		source.DocType = "fubon"
+
 		resData := Hit{
 			Index:  scrollRes.Hits.Hits[k].Index,
 			Type:   scrollRes.Hits.Hits[k].Type,
 			ID:     scrollRes.Hits.Hits[k].ID,
 			Score:  scrollRes.Hits.Hits[k].Score,
-			Source: scrollRes.Hits.Hits[k].Source,
+			Source: source,
 		}
 		batchData = append(batchData, resData)
 
@@ -311,12 +316,17 @@ func HandleBatchData(scrollRes *ScrollResponse, index string) {
 
 		// 處理當前批次資料
 		for k := range scrollRes.Hits.Hits {
+			// 先複製原始的 Source 數據
+			source := scrollRes.Hits.Hits[k].Source
+			// 設置 DocType
+			source.DocType = "fubon"
+
 			resData := Hit{
 				Index:  scrollRes.Hits.Hits[k].Index,
 				Type:   scrollRes.Hits.Hits[k].Type,
 				ID:     scrollRes.Hits.Hits[k].ID,
 				Score:  scrollRes.Hits.Hits[k].Score,
-				Source: scrollRes.Hits.Hits[k].Source,
+				Source: source,
 			}
 			batchData = append(batchData, resData)
 
