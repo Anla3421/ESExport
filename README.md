@@ -3,6 +3,32 @@
 ## 目的
 舊如意匯到新如意
 
+### 匯入功能說明
+具斷點續執行功能
+#### 第一次一般啟動（資料夾內無JSON檔案）：
+```bash
+2024/11/13 16:40:28 mode=0, dump data only, from http://10.85.1.218:30902
+2024/11/13 16:40:28 dump with batch start
+2024/11/13 16:40:29 Successfully wrote file ./JSON/logs-2016.05.11_1.json (records: 30)
+```
+#### 第二次啟動（資料夾內已有JSON檔案），會從最後一個JSON檔案的日期開始撈
+可作為續接上次匯出中斷的動作：
+```bash
+2024/11/13 16:29:15 mode=0, dump data only, from http://10.85.1.218:30902
+2024/11/13 16:29:15 dump with batch start
+2024/11/13 16:29:15 Found latest date in files: 2024.11.14, updating DumpIndexStart
+2024/11/13 16:35:57 Successfully wrote file ./JSON/logs-2024.11.14_1.json (records: 30000)
+```
+### 匯出功能說明
+完成匯出後，才會吐出log：
+```bash
+2024/11/13 15:45:21 mode=1, import data only to https://admin:admin@localhost:9200
+2024/11/13 15:45:21 import start with OpenSearch bulk API
+2024/11/13 15:45:21 handling JSON/2024.11.10_1.json...
+2024/11/13 15:46:07 handling JSON/2024.11.10_2.json...
+2024/11/13 15:46:51 handling JSON/2024.11.10_3.json...
+2024/11/13 15:47:35 handling JSON/2024.11.10_4.json...
+```
 ## 配置說明
 
 ### 匯出(Dump)相關配置
@@ -39,8 +65,7 @@
 
 - `dump_len_importData`
   - 說明：每個JSON檔案包含的資料筆數
-  - 預設值：`5000`
-  - ***注意：因為預設的使用情境故此參數沒有作用，可忽略***
+  - 預設值：`30000`
 
 - `dump_path`
   - 說明：JSON檔案儲存路徑

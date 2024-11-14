@@ -37,7 +37,7 @@ func initVariable() {
 	pflag.Int("dump_post_size", 1000, "單次撈 es 取得的筆數上限，理論上限是 10000，但不要設太高，會有效能跟容量撞上限導致報錯的問題")
 	pflag.String("dump_gte", "2016-01-01T00:00:00", "gte")
 	pflag.String("dump_lte", "2016-07-15T23:59:59", "lte")
-	pflag.Int("dump_len_importData", 5000, "多少筆做一次寫入檔案，即一個.json內會有幾筆資料")
+	pflag.Int("dump_len_importData", 30000, "多少筆做一次寫入檔案，即一個.json內會有幾筆資料")
 	pflag.String("dump_path", "./JSON", "要建立檔案的位置，設不存在的資料夾會報錯，若有需要設定，再改code")
 	pflag.String("import_es_addr", "https://admin:admin@localhost:9200", "dump elasticserach address，目前只有支援新版如意")
 	pflag.String("import_index", "logs-fubon-000001", "新版如意使用，目前只有支援新版如意es")
