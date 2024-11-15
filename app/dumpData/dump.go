@@ -279,6 +279,54 @@ func HandleBatchData(scrollRes *ScrollResponse, index string) {
 		source := scrollRes.Hits.Hits[k].Source
 		// 設置 DocType
 		source.DocType = "fubon"
+		// 設置 pid 等於 _id
+		source.Pid = scrollRes.Hits.Hits[k].ID
+		// 確保 labels 是空陣列而不是 null
+		if source.Labels == nil {
+			source.Labels = []string{}
+		}
+
+		// 轉換時間格式
+		if startTime, err := time.Parse("2006-01-02T15:04:05-0700", source.StartTime); err == nil {
+			source.StartTime = startTime.UTC().Format("2006-01-02T15:04:05Z")
+		}
+		if endTime, err := time.Parse("2006-01-02T15:04:05-0700", source.EndTime); err == nil {
+			source.EndTime = endTime.UTC().Format("2006-01-02T15:04:05Z")
+		}
+		if modiTime, err := time.Parse("2006-01-02T15:04:05-0700", source.ModiTime); err == nil {
+			source.ModiTime = modiTime.UTC().Format("2006-01-02T15:04:05Z")
+		}
+		if importTime, err := time.Parse("2006-01-02T15:04:05-0700", source.ImportTime); err == nil {
+			source.ImportTime = importTime.UTC().Format("2006-01-02T15:04:05Z")
+		}
+
+		// 組合 auditNodes
+		auditNodes := []string{"Root"}
+		if source.OrgArea != "" {
+			auditNodes = append(auditNodes, fmt.Sprintf("Root/%s", source.OrgArea))
+			if source.OrgGroup != "" {
+				auditNodes = append(auditNodes, fmt.Sprintf("Root/%s/%s", source.OrgArea, source.OrgGroup))
+			}
+		}
+		source.AuditNodes = auditNodes
+
+		// 計算 over60s (使用轉換後的時間)
+		startTime, err := time.Parse("2006-01-02T15:04:05Z", source.StartTime)
+		if err != nil {
+			log.Printf("Warning: Failed to parse StartTime: %v", err)
+		}
+		endTime, err := time.Parse("2006-01-02T15:04:05Z", source.EndTime)
+		if err != nil {
+			log.Printf("Warning: Failed to parse EndTime: %v", err)
+		}
+
+		// 計算時間差（秒）
+		duration := endTime.Sub(startTime).Seconds()
+		if duration > 60 {
+			source.Over60s = 1
+		} else {
+			source.Over60s = 0
+		}
 
 		resData := Hit{
 			Index:  scrollRes.Hits.Hits[k].Index,
@@ -320,6 +368,54 @@ func HandleBatchData(scrollRes *ScrollResponse, index string) {
 			source := scrollRes.Hits.Hits[k].Source
 			// 設置 DocType
 			source.DocType = "fubon"
+			// 設置 pid 等於 _id
+			source.Pid = scrollRes.Hits.Hits[k].ID
+			// 確保 labels 是空陣列而不是 null
+			if source.Labels == nil {
+				source.Labels = []string{}
+			}
+
+			// 轉換時間格式
+			if startTime, err := time.Parse("2006-01-02T15:04:05-0700", source.StartTime); err == nil {
+				source.StartTime = startTime.UTC().Format("2006-01-02T15:04:05Z")
+			}
+			if endTime, err := time.Parse("2006-01-02T15:04:05-0700", source.EndTime); err == nil {
+				source.EndTime = endTime.UTC().Format("2006-01-02T15:04:05Z")
+			}
+			if modiTime, err := time.Parse("2006-01-02T15:04:05-0700", source.ModiTime); err == nil {
+				source.ModiTime = modiTime.UTC().Format("2006-01-02T15:04:05Z")
+			}
+			if importTime, err := time.Parse("2006-01-02T15:04:05-0700", source.ImportTime); err == nil {
+				source.ImportTime = importTime.UTC().Format("2006-01-02T15:04:05Z")
+			}
+
+			// 組合 auditNodes
+			auditNodes := []string{"Root"}
+			if source.OrgArea != "" {
+				auditNodes = append(auditNodes, fmt.Sprintf("Root/%s", source.OrgArea))
+				if source.OrgGroup != "" {
+					auditNodes = append(auditNodes, fmt.Sprintf("Root/%s/%s", source.OrgArea, source.OrgGroup))
+				}
+			}
+			source.AuditNodes = auditNodes
+
+			// 計算 over60s (使用轉換後的時間)
+			startTime, err := time.Parse("2006-01-02T15:04:05Z", source.StartTime)
+			if err != nil {
+				log.Printf("Warning: Failed to parse StartTime: %v", err)
+			}
+			endTime, err := time.Parse("2006-01-02T15:04:05Z", source.EndTime)
+			if err != nil {
+				log.Printf("Warning: Failed to parse EndTime: %v", err)
+			}
+
+			// 計算時間差（秒）
+			duration := endTime.Sub(startTime).Seconds()
+			if duration > 60 {
+				source.Over60s = 1
+			} else {
+				source.Over60s = 0
+			}
 
 			resData := Hit{
 				Index:  scrollRes.Hits.Hits[k].Index,
