@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -106,6 +107,24 @@ func ExecImportDataByBulk(jsonMap map[int]Hit) {
 // ImportByOpenSearchBulk 使用 OpenSearch bulk API 進行匯入
 func ImportByOpenSearchBulk() {
 	log.Println("import start with OpenSearch bulk API")
+
+	// 檢查斷點續傳記錄檔
+	checkpointFile := filepath.Join(config.Cfgs.ImportPath, "import_checkpoint.txt")
+	fmt.Println("checkpointFile", checkpointFile)
+	var processedFiles map[string]bool = make(map[string]bool)
+
+	// 讀取已處理檔案的記錄
+	if data, err := os.ReadFile(checkpointFile); err == nil {
+		fmt.Println("data", data)
+		files := strings.Split(string(data), "\n")
+		for _, file := range files {
+			if file != "" {
+				processedFiles[file] = true
+			}
+		}
+		log.Printf("Found checkpoint with %d processed files", len(processedFiles))
+	}
+
 	files, err := filepath.Glob(filepath.Join(config.Cfgs.ImportPath, "*.json"))
 	if err != nil {
 		log.Fatalf("glob fail: %v", err)
@@ -115,54 +134,94 @@ func ImportByOpenSearchBulk() {
 	var bulkBody bytes.Buffer
 	count := 0
 
+	// 開啟檔案用於追加記錄已處理的檔案，若檔案不存在則會創建它
+	checkpointWriter, err := os.OpenFile(checkpointFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		log.Printf("Warning: Could not open checkpoint file: %v", err)
+	}
+	defer checkpointWriter.Close()
+
 	for _, file := range files {
+		// 跳過已處理的檔案
+		if processedFiles[filepath.Base(file)] {
+			log.Printf("Skipping already processed file: %s", filepath.Base(file))
+			continue
+		}
+
 		log.Printf("handling %v...\n", file)
 		data, err := os.ReadFile(file)
 		if err != nil {
-			log.Fatalf("readFile fail: %s: %v", file, err)
+			log.Fatalf("Error reading file %s: %v, skipping...", file, err)
+			continue
 		}
 
 		var hits []Hit
 		if err := json.Unmarshal(data, &hits); err != nil {
-			log.Fatalf("Unmarshal fail: %s: %v", file, err)
+			log.Fatalf("Error unmarshaling file %s: %v, skipping...", file, err)
+			continue
 		}
 
+		// 處理檔案內容...
+		importSuccess := true
 		for _, hit := range hits {
-			// 建立 action metadata
-			action := fmt.Sprintf(`{"index":{"_index":"%s","_id":"%s"}}`, config.Cfgs.ImportIndex, hit.ID)
-			bulkBody.WriteString(action + "\n")
-
-			// 建立 document body
-			docJSON, err := json.Marshal(hit.Source)
-			if err != nil {
-				log.Printf("Error marshaling document: %v", err)
-				continue
+			if err := processBulkRequest(&bulkBody, hit, &count); err != nil {
+				log.Printf("Error processing bulk request: %v", err)
+				importSuccess = false
+				break
 			}
-			bulkBody.Write(docJSON)
-			bulkBody.WriteString("\n")
+		}
 
-			count++
-
-			// 當達到批次大小時執行 bulk request
-			if count >= config.Cfgs.ImportSize {
-				executeBulkRequest(&bulkBody)
-				bulkBody.Reset()
-				count = 0
-				time.Sleep(100 * time.Millisecond) // 避免過度頻繁請求
+		// 如果檔案處理成功，記錄到 checkpoint 文件
+		if importSuccess {
+			if _, err := checkpointWriter.WriteString(filepath.Base(file) + "\n"); err != nil {
+				log.Printf("Warning: Could not write to checkpoint file: %v", err)
 			}
+			checkpointWriter.Sync()
+			log.Printf("Successfully processed file: %s", filepath.Base(file))
 		}
 	}
 
 	// 處理剩餘的文檔
 	if bulkBody.Len() > 0 {
-		executeBulkRequest(&bulkBody)
+		if err := executeBulkRequest(&bulkBody); err != nil {
+			log.Printf("Error executing final bulk request: %v", err)
+		}
 	}
 
 	log.Println("import finish")
 }
 
+// processBulkRequest 處理單個文檔的 bulk request
+func processBulkRequest(bulkBody *bytes.Buffer, hit Hit, count *int) error {
+	// 建立 action metadata
+	action := fmt.Sprintf(`{"index":{"_index":"%s","_id":"%s"}}`, config.Cfgs.ImportIndex, hit.ID)
+	bulkBody.WriteString(action + "\n")
+
+	// 建立 document body
+	docJSON, err := json.Marshal(hit.Source)
+	if err != nil {
+		return fmt.Errorf("error marshaling document: %v", err)
+	}
+	bulkBody.Write(docJSON)
+	bulkBody.WriteString("\n")
+
+	*count++
+
+	// 當達到批次大小時執行 bulk request
+	if *count >= config.Cfgs.ImportSize {
+		if err := executeBulkRequest(bulkBody); err != nil {
+			return err
+		}
+		bulkBody.Reset()
+		*count = 0
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	return nil
+}
+
 // executeBulkRequest 執行 bulk request
-func executeBulkRequest(bulkBody *bytes.Buffer) {
+func executeBulkRequest(bulkBody *bytes.Buffer) error {
 	url := fmt.Sprintf("%s/_bulk?refresh=true", config.Cfgs.ImportESAddr)
 
 	// 使用已有的 ESPost 函數
@@ -184,7 +243,7 @@ func executeBulkRequest(bulkBody *bytes.Buffer) {
 
 	if err := json.Unmarshal(resp, &bulkResponse); err != nil {
 		log.Printf("Error parsing bulk response: %v", err)
-		return
+		return err
 	}
 
 	// 檢查錯誤
@@ -198,4 +257,6 @@ func executeBulkRequest(bulkBody *bytes.Buffer) {
 			}
 		}
 	}
+
+	return nil
 }
