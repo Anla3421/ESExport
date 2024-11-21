@@ -7,20 +7,20 @@
 具斷點續執行功能
 #### 第一次一般啟動（資料夾內無JSON檔案）：
 ```bash
-2024/11/13 16:40:28 mode=0, dump data only, from http://10.85.1.218:30902
+2024/11/13 16:40:28 mode=0, dump data only, from https://admin:admin@localhost:9200
 2024/11/13 16:40:28 dump with batch start
 2024/11/13 16:40:29 Successfully wrote file ./JSON/logs-2016.05.11_1.json (records: 30)
 ```
 #### 第二次啟動（資料夾內已有JSON檔案），會從最後一個JSON檔案的日期開始撈
 可作為續接上次匯出中斷的動作：
 ```bash
-2024/11/13 16:29:15 mode=0, dump data only, from http://10.85.1.218:30902
+2024/11/13 16:29:15 mode=0, dump data only, from https://admin:admin@localhost:9200
 2024/11/13 16:29:15 dump with batch start
 2024/11/13 16:29:15 Found latest date in files: 2024.11.14, updating DumpIndexStart
 2024/11/13 16:35:57 Successfully wrote file ./JSON/logs-2024.11.14_1.json (records: 30000)
 ```
 ### 匯出功能說明
-完成匯出後，才會吐出log：
+該筆檔案完成匯出後，才會吐出log：
 ```bash
 2024/11/13 15:45:21 mode=1, import data only to https://admin:admin@localhost:9200
 2024/11/13 15:45:21 import start with OpenSearch bulk API
@@ -34,7 +34,6 @@
 ### 匯出(Dump)相關配置
 - `dump_es_addr`
   - 說明：舊系統ES位址
-  - 預設值：`http://10.85.1.218:30902`
 
 - `dump_index_start`
   - 說明：要撈的起始index
@@ -79,7 +78,7 @@
 
 - `import_index`
   - 說明：新系統索引名稱
-  - 預設值：`logs-fubon-000001`
+  - 預設值：`logs-xxx-000001`
 
 - `import_path`
   - 說明：讀取JSON檔案的路徑
@@ -101,4 +100,4 @@
     - 2: 執行匯出及匯入
 
 ## 待辦事項
-- dump 程式優化，以便處理大量資料
+- dump 部份可共用的代碼 lib 化
