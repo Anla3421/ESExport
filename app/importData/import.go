@@ -108,14 +108,27 @@ func ExecImportDataByBulk(jsonMap map[int]Hit) {
 func ImportByOpenSearchBulk() {
 	log.Println("import start with OpenSearch bulk API")
 
-	// 檢查斷點續傳記錄檔
-	checkpointFile := filepath.Join(config.Cfgs.ImportPath, "import_checkpoint.txt")
-	fmt.Println("checkpointFile", checkpointFile)
-	var processedFiles map[string]bool = make(map[string]bool)
+	checkpointFile := getCheckpointFilePath()
+	processedFiles := loadProcessedFiles(checkpointFile)
+	jsonFiles := getJsonFiles()
 
-	// 讀取已處理檔案的記錄
-	if data, err := os.ReadFile(checkpointFile); err == nil {
-		fmt.Println("data", data)
+	checkpointWriter := createCheckpointWriter(checkpointFile)
+	defer checkpointWriter.Close()
+
+	importFiles(jsonFiles, processedFiles, checkpointWriter)
+	log.Println("import finish")
+}
+
+// getCheckpointFilePath 獲取檢查點文件路徑
+func getCheckpointFilePath() string {
+	return filepath.Join(config.Cfgs.ImportPath, "import_checkpoint.txt")
+}
+
+// loadProcessedFiles 加載已處理的文件記錄
+func loadProcessedFiles(checkpointFile string) map[string]bool {
+	processedFiles := make(map[string]bool)
+	data, err := os.ReadFile(checkpointFile)
+	if err == nil {
 		files := strings.Split(string(data), "\n")
 		for _, file := range files {
 			if file != "" {
@@ -124,60 +137,40 @@ func ImportByOpenSearchBulk() {
 		}
 		log.Printf("Found checkpoint with %d processed files", len(processedFiles))
 	}
+	return processedFiles
+}
 
+// getJsonFiles 獲取所有JSON文件
+func getJsonFiles() []string {
 	files, err := filepath.Glob(filepath.Join(config.Cfgs.ImportPath, "*.json"))
 	if err != nil {
 		log.Fatalf("glob fail: %v", err)
 	}
+	return files
+}
 
-	// 準備 bulk request
-	var bulkBody bytes.Buffer
-	count := 0
-
-	// 開啟檔案用於追加記錄已處理的檔案，若檔案不存在則會創建它
-	checkpointWriter, err := os.OpenFile(checkpointFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+// createCheckpointWriter 創建檢查點文件寫入器
+func createCheckpointWriter(checkpointFile string) *os.File {
+	writer, err := os.OpenFile(checkpointFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		log.Printf("Warning: Could not open checkpoint file: %v", err)
 	}
-	defer checkpointWriter.Close()
+	return writer
+}
+
+// importFiles 處理所有文件的導入
+func importFiles(files []string, processedFiles map[string]bool, checkpointWriter *os.File) {
+	var bulkBody bytes.Buffer
+	count := 0
 
 	for _, file := range files {
-		// 跳過已處理的檔案
 		if processedFiles[filepath.Base(file)] {
 			log.Printf("Skipping already processed file: %s", filepath.Base(file))
 			continue
 		}
 
-		log.Printf("handling %v...\n", file)
-		data, err := os.ReadFile(file)
-		if err != nil {
-			log.Fatalf("Error reading file %s: %v, skipping...", file, err)
-			continue
-		}
-
-		var hits []Hit
-		if err := json.Unmarshal(data, &hits); err != nil {
-			log.Fatalf("Error unmarshaling file %s: %v, skipping...", file, err)
-			continue
-		}
-
-		// 處理檔案內容...
-		importSuccess := true
-		for _, hit := range hits {
-			if err := processBulkRequest(&bulkBody, hit, &count); err != nil {
-				log.Printf("Error processing bulk request: %v", err)
-				importSuccess = false
-				break
-			}
-		}
-
-		// 如果檔案處理成功，記錄到 checkpoint 文件
-		if importSuccess {
-			if _, err := checkpointWriter.WriteString(filepath.Base(file) + "\n"); err != nil {
-				log.Printf("Warning: Could not write to checkpoint file: %v", err)
-			}
-			checkpointWriter.Sync()
-			log.Printf("Successfully processed file: %s", filepath.Base(file))
+		if processFile(file, &bulkBody, &count, checkpointWriter) {
+			recordProcessedFile(checkpointWriter, file)
 		}
 	}
 
@@ -187,8 +180,53 @@ func ImportByOpenSearchBulk() {
 			log.Printf("Error executing final bulk request: %v", err)
 		}
 	}
+}
 
-	log.Println("import finish")
+// processFile 處理單個文件
+func processFile(file string, bulkBody *bytes.Buffer, count *int, checkpointWriter *os.File) bool {
+	log.Printf("handling %v...\n", file)
+	hits, err := readJsonFile(file)
+	if err != nil {
+		return false
+	}
+
+	return processHits(hits, bulkBody, count)
+}
+
+// readJsonFile 讀取並解析JSON文件
+func readJsonFile(file string) ([]Hit, error) {
+	data, err := os.ReadFile(file)
+	if err != nil {
+		log.Printf("Error reading file %s: %v", file, err)
+		return nil, err
+	}
+
+	var hits []Hit
+	if err := json.Unmarshal(data, &hits); err != nil {
+		log.Printf("Error unmarshaling file %s: %v", file, err)
+		return nil, err
+	}
+	return hits, nil
+}
+
+// processHits 處理所有hits數據
+func processHits(hits []Hit, bulkBody *bytes.Buffer, count *int) bool {
+	for _, hit := range hits {
+		if err := processBulkRequest(bulkBody, hit, count); err != nil {
+			log.Printf("Error processing bulk request: %v", err)
+			return false
+		}
+	}
+	return true
+}
+
+// recordProcessedFile 記錄已處理的文件
+func recordProcessedFile(writer *os.File, file string) {
+	if _, err := writer.WriteString(filepath.Base(file) + "\n"); err != nil {
+		log.Printf("Warning: Could not write to checkpoint file: %v", err)
+	}
+	writer.Sync()
+	log.Printf("Successfully processed file: %s", filepath.Base(file))
 }
 
 // processBulkRequest 處理單個文檔的 bulk request
