@@ -274,171 +274,136 @@ func HandleBatchData(scrollRes *ScrollResponse, index string) {
 	batchNum := 1
 
 	// 處理第一批資料
-	for k := range scrollRes.Hits.Hits {
-		// 先複製原始的 Source 數據
-		source := scrollRes.Hits.Hits[k].Source
-		// 設置 DocType
-		source.DocType = "fubon"
-		// 設置 pid 等於 _id
-		source.Pid = scrollRes.Hits.Hits[k].ID
-		// 確保 labels 是空陣列而不是 null
-		if source.Labels == nil {
-			source.Labels = []string{}
-		}
-
-		// 轉換時間格式
-		if startTime, err := time.Parse(TimeFormatInput, source.StartTime); err == nil {
-			source.StartTime = startTime.UTC().Format(TimeFormatOutput)
-		}
-		if endTime, err := time.Parse(TimeFormatInput, source.EndTime); err == nil {
-			source.EndTime = endTime.UTC().Format(TimeFormatOutput)
-		}
-		if modiTime, err := time.Parse(TimeFormatInput, source.ModiTime); err == nil {
-			source.ModiTime = modiTime.UTC().Format(TimeFormatOutput)
-		}
-		if importTime, err := time.Parse(TimeFormatInput, source.ImportTime); err == nil {
-			source.ImportTime = importTime.UTC().Format(TimeFormatOutput)
-		}
-
-		// 組合 auditNodes
-		auditNodes := []string{"Root"}
-		if source.OrgArea != "" {
-			auditNodes = append(auditNodes, fmt.Sprintf("Root/%s", source.OrgArea))
-			if source.OrgGroup != "" {
-				auditNodes = append(auditNodes, fmt.Sprintf("Root/%s/%s", source.OrgArea, source.OrgGroup))
-			}
-		}
-		source.AuditNodes = auditNodes
-
-		// 計算 over60s (使用轉換後的時間)
-		startTime, err := time.Parse(TimeFormatOutput, source.StartTime)
-		if err != nil {
-			log.Printf("Warning: Failed to parse StartTime: %v", err)
-		}
-		endTime, err := time.Parse(TimeFormatOutput, source.EndTime)
-		if err != nil {
-			log.Printf("Warning: Failed to parse EndTime: %v", err)
-		}
-
-		// 計算時間差（秒）
-		duration := endTime.Sub(startTime).Seconds()
-		if duration > 60 {
-			source.Over60s = 1
-		} else {
-			source.Over60s = 0
-		}
-
-		resData := Hit{
-			Index:  scrollRes.Hits.Hits[k].Index,
-			Type:   scrollRes.Hits.Hits[k].Type,
-			ID:     scrollRes.Hits.Hits[k].ID,
-			Score:  scrollRes.Hits.Hits[k].Score,
-			Source: source,
-		}
-		batchData = append(batchData, resData)
-
-		// 當資料達到設定時，寫入檔案
-		if len(batchData) >= config.Cfgs.DumpLenImportData {
-			writeBatchFile(batchData, index, batchNum)
-			batchData = []Hit{}
-			batchNum++
-		}
-	}
+	processBatch(scrollRes.Hits.Hits, &batchData, index, &batchNum)
 
 	// 繼續處理scroll資料
 	for len(scrollRes.Hits.Hits) > 0 {
-		url := fmt.Sprintf("%s/_search/scroll", config.Cfgs.DumpESAddr)
-		requestBody := map[string]interface{}{
-			"scroll":    "5m",
-			"scroll_id": scrollRes.ScrollID,
-		}
-		jsonBody, err := json.Marshal(requestBody)
-		if err != nil {
-			log.Fatalf(ErrEncodingJSON, err)
-		}
-		result := esHttp.ESPost(jsonBody, url)
-		scrollRes = &ScrollResponse{}
-		if err := json.Unmarshal(result, &scrollRes); err != nil {
-			log.Fatalf(ErrDecodingResponseJSON, err)
-		}
-
-		// 處理當前批次資料
-		for k := range scrollRes.Hits.Hits {
-			// 先複製原始的 Source 數據
-			source := scrollRes.Hits.Hits[k].Source
-			// 設置 DocType
-			source.DocType = "fubon"
-			// 設置 pid 等於 _id
-			source.Pid = scrollRes.Hits.Hits[k].ID
-			// 確保 labels 是空陣列而不是 null
-			if source.Labels == nil {
-				source.Labels = []string{}
-			}
-
-			// 轉換時間格式
-			if startTime, err := time.Parse(TimeFormatInput, source.StartTime); err == nil {
-				source.StartTime = startTime.UTC().Format(TimeFormatOutput)
-			}
-			if endTime, err := time.Parse(TimeFormatInput, source.EndTime); err == nil {
-				source.EndTime = endTime.UTC().Format(TimeFormatOutput)
-			}
-			if modiTime, err := time.Parse(TimeFormatInput, source.ModiTime); err == nil {
-				source.ModiTime = modiTime.UTC().Format(TimeFormatOutput)
-			}
-			if importTime, err := time.Parse(TimeFormatInput, source.ImportTime); err == nil {
-				source.ImportTime = importTime.UTC().Format(TimeFormatOutput)
-			}
-
-			// 組合 auditNodes
-			auditNodes := []string{"Root"}
-			if source.OrgArea != "" {
-				auditNodes = append(auditNodes, fmt.Sprintf("Root/%s", source.OrgArea))
-				if source.OrgGroup != "" {
-					auditNodes = append(auditNodes, fmt.Sprintf("Root/%s/%s", source.OrgArea, source.OrgGroup))
-				}
-			}
-			source.AuditNodes = auditNodes
-
-			// 計算 over60s (使用轉換後的時間)
-			startTime, err := time.Parse(TimeFormatOutput, source.StartTime)
-			if err != nil {
-				log.Printf("Warning: Failed to parse StartTime: %v", err)
-			}
-			endTime, err := time.Parse(TimeFormatOutput, source.EndTime)
-			if err != nil {
-				log.Printf("Warning: Failed to parse EndTime: %v", err)
-			}
-
-			// 計算時間差（秒）
-			duration := endTime.Sub(startTime).Seconds()
-			if duration > 60 {
-				source.Over60s = 1
-			} else {
-				source.Over60s = 0
-			}
-
-			resData := Hit{
-				Index:  scrollRes.Hits.Hits[k].Index,
-				Type:   scrollRes.Hits.Hits[k].Type,
-				ID:     scrollRes.Hits.Hits[k].ID,
-				Score:  scrollRes.Hits.Hits[k].Score,
-				Source: source,
-			}
-			batchData = append(batchData, resData)
-
-			// 當資料達到設定時，寫入檔案
-			if len(batchData) >= config.Cfgs.DumpLenImportData {
-				writeBatchFile(batchData, index, batchNum)
-				batchData = []Hit{}
-				batchNum++
-			}
-		}
+		scrollRes = fetchNextScrollData(scrollRes.ScrollID)
+		processBatch(scrollRes.Hits.Hits, &batchData, index, &batchNum)
 	}
 
 	// 處理最後一批不足設定條數的資料
 	if len(batchData) > 0 {
 		writeBatchFile(batchData, index, batchNum)
 	}
+}
+
+// processBatch 處理單批資料
+func processBatch(hits []Hit, batchData *[]Hit, index string, batchNum *int) {
+	for k := range hits {
+		source := processSource(hits[k])
+		resData := createHitData(hits[k], source)
+		*batchData = append(*batchData, resData)
+
+		// 當資料達到設定時，寫入檔案
+		if len(*batchData) >= config.Cfgs.DumpLenImportData {
+			writeBatchFile(*batchData, index, *batchNum)
+			*batchData = []Hit{}
+			*batchNum++
+		}
+	}
+}
+
+// processSource 處理源數據
+func processSource(hit Hit) SourceData {
+	source := hit.Source
+	source = initializeSource(source, hit.ID)
+	source = processTimeFields(source)
+	source = processAuditNodes(source)
+	source = calculateOver60s(source)
+	return source
+}
+
+// initializeSource 初始化源數據
+func initializeSource(source SourceData, id string) SourceData {
+	source.DocType = "fubon"
+	source.Pid = id
+	if source.Labels == nil {
+		source.Labels = []string{}
+	}
+	return source
+}
+
+// processTimeFields 處理時間字段
+func processTimeFields(source SourceData) SourceData {
+	if startTime, err := time.Parse(TimeFormatInput, source.StartTime); err == nil {
+		source.StartTime = startTime.UTC().Format(TimeFormatOutput)
+	}
+	if endTime, err := time.Parse(TimeFormatInput, source.EndTime); err == nil {
+		source.EndTime = endTime.UTC().Format(TimeFormatOutput)
+	}
+	if modiTime, err := time.Parse(TimeFormatInput, source.ModiTime); err == nil {
+		source.ModiTime = modiTime.UTC().Format(TimeFormatOutput)
+	}
+	if importTime, err := time.Parse(TimeFormatInput, source.ImportTime); err == nil {
+		source.ImportTime = importTime.UTC().Format(TimeFormatOutput)
+	}
+	return source
+}
+
+// processAuditNodes 處理審計節點
+func processAuditNodes(source SourceData) SourceData {
+	auditNodes := []string{"Root"}
+	if source.OrgArea != "" {
+		auditNodes = append(auditNodes, fmt.Sprintf("Root/%s", source.OrgArea))
+		if source.OrgGroup != "" {
+			auditNodes = append(auditNodes, fmt.Sprintf("Root/%s/%s", source.OrgArea, source.OrgGroup))
+		}
+	}
+	source.AuditNodes = auditNodes
+	return source
+}
+
+// calculateOver60s 計算超過60秒標記
+func calculateOver60s(source SourceData) SourceData {
+	startTime, err := time.Parse(TimeFormatOutput, source.StartTime)
+	if err != nil {
+		log.Printf("Warning: Failed to parse StartTime: %v", err)
+		return source
+	}
+	endTime, err := time.Parse(TimeFormatOutput, source.EndTime)
+	if err != nil {
+		log.Printf("Warning: Failed to parse EndTime: %v", err)
+		return source
+	}
+
+	duration := endTime.Sub(startTime).Seconds()
+	if duration > 60 {
+		source.Over60s = 1
+	} else {
+		source.Over60s = 0
+	}
+	return source
+}
+
+// createHitData 創建Hit數據
+func createHitData(originalHit Hit, source SourceData) Hit {
+	return Hit{
+		Index:  originalHit.Index,
+		Type:   originalHit.Type,
+		ID:     originalHit.ID,
+		Score:  originalHit.Score,
+		Source: source,
+	}
+}
+
+// fetchNextScrollData 獲取下一批scroll數據
+func fetchNextScrollData(scrollID string) *ScrollResponse {
+	url := fmt.Sprintf("%s/_search/scroll", config.Cfgs.DumpESAddr)
+	requestBody := map[string]interface{}{
+		"scroll":    "5m",
+		"scroll_id": scrollID,
+	}
+	jsonBody, err := json.Marshal(requestBody)
+	if err != nil {
+		log.Fatalf(ErrEncodingJSON, err)
+	}
+	result := esHttp.ESPost(jsonBody, url)
+	scrollRes := &ScrollResponse{}
+	if err := json.Unmarshal(result, scrollRes); err != nil {
+		log.Fatalf(ErrDecodingResponseJSON, err)
+	}
+	return scrollRes
 }
 
 // writeBatchFile 將批次資料寫入檔案
