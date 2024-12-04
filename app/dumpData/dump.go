@@ -39,16 +39,16 @@ func Dump() {
 	}
 
 	for date := startDate; !date.After(endDate); date = date.AddDate(0, 0, 1) {
-		indexToDump := fmt.Sprintf("logs-%s", date.Format("2006.01.02"))
+		indexToDump := fmt.Sprintf(LogsIndexFormat, date.Format(DateFormat))
 		url := fmt.Sprintf("%s/%s/%s%s", config.Cfgs.DumpESAddr, indexToDump, option, scrollTime)
 		jsonBody, err := json.Marshal(requestBody)
 		if err != nil {
-			log.Fatalf("Error encoding JSON: %v", err)
+			log.Fatalf(ErrEncodingJSON, err)
 		}
 		reutlt := esHttp.ESPost(jsonBody, url)
 		scrollRes := &ScrollResponse{}
 		if err := json.Unmarshal(reutlt, &scrollRes); err != nil {
-			log.Fatalf("Error decoding response JSON: %v", err)
+			log.Fatalf(ErrDecodingResponseJSON, err)
 		}
 		HandleRemainData(scrollRes, indexToDump)
 	}
@@ -79,7 +79,7 @@ func HandleRemainData(scrollRes *ScrollResponse, index string) {
 		// json beauty
 		jsonData, err := json.MarshalIndent(importData, "", "    ")
 		if err != nil {
-			log.Fatalf("Error marshaling JSON: %v", err)
+			log.Fatalf(ErrEncodingJSON, err)
 		}
 		fileName := fmt.Sprintf("%s/%s.json", config.Cfgs.DumpPath, index)
 		err = os.WriteFile(fileName, jsonData, 0644)
@@ -100,12 +100,12 @@ func HandleRemainData(scrollRes *ScrollResponse, index string) {
 		}
 		jsonBody, err := json.Marshal(requestBody)
 		if err != nil {
-			log.Fatalf("Error encoding JSON: %v", err)
+			log.Fatalf(ErrEncodingJSON, err)
 		}
 		reutlt := esHttp.ESPost(jsonBody, url)
 		scrollRes = &ScrollResponse{}
 		if err := json.Unmarshal(reutlt, &scrollRes); err != nil {
-			log.Fatalf("Error decoding response JSON: %v", err)
+			log.Fatalf(ErrDecodingResponseJSON, err)
 		}
 		HandleRemainData(scrollRes, index)
 	}
@@ -129,7 +129,7 @@ func HandleRemainDataByAmount(scrollRes *ScrollResponse) {
 		// json beauty
 		jsonData, err := json.MarshalIndent(importData, "", "    ")
 		if err != nil {
-			log.Fatalf("Error marshaling JSON: %v", err)
+			log.Fatalf(ErrEncodingJSON, err)
 		}
 
 		fileName := fmt.Sprintf("%s/%d.json", config.Cfgs.DumpPath, i)
@@ -154,12 +154,12 @@ func HandleRemainDataByAmount(scrollRes *ScrollResponse) {
 		}
 		jsonBody, err := json.Marshal(requestBody)
 		if err != nil {
-			log.Fatalf("Error encoding JSON: %v", err)
+			log.Fatalf(ErrEncodingJSON, err)
 		}
 		reutlt := esHttp.ESPost(jsonBody, url)
 		scrollRes = &ScrollResponse{}
 		if err := json.Unmarshal(reutlt, &scrollRes); err != nil {
-			log.Fatalf("Error decoding response JSON: %v", err)
+			log.Fatalf(ErrDecodingResponseJSON, err)
 		}
 		HandleRemainDataByAmount(scrollRes)
 	}
@@ -173,7 +173,7 @@ func HandleIndexString(IndexString string) time.Time {
 	}
 	// 提取日期部分並將其轉換為 time.Time
 	dateString := temp[1]
-	dateTime, err := time.Parse("2006.01.02", dateString) // 使用適當的日期格式
+	dateTime, err := time.Parse(DateFormat, dateString)
 	if err != nil {
 		log.Fatalf("date parse fail: %v\n", err)
 		return time.Time{}
@@ -209,7 +209,7 @@ func DumpWithBatch() {
 				matches := re.FindStringSubmatch(fileName)
 				if len(matches) > 1 {
 					dateStr := matches[1]
-					date, err := time.Parse("2006.01.02", dateStr)
+					date, err := time.Parse(DateFormat, dateStr)
 					if err != nil {
 						log.Printf("Warning: Failed to parse date from filename %s: %v", fileName, err)
 						continue
@@ -222,8 +222,8 @@ func DumpWithBatch() {
 		}
 		// 如果找到有效的最新日期，更新 DumpIndexStart
 		if !latestDate.IsZero() {
-			newStartIndex := fmt.Sprintf("logs-%s", latestDate.Format("2006.01.02"))
-			log.Printf("Found latest date in files: %s, updating DumpIndexStart", latestDate.Format("2006.01.02"))
+			newStartIndex := fmt.Sprintf(LogsIndexFormat, latestDate.Format(DateFormat))
+			log.Printf("Found latest date in files: %s, updating DumpIndexStart", latestDate.Format(DateFormat))
 			config.Cfgs.DumpIndexStart = newStartIndex
 		}
 	}
@@ -252,16 +252,16 @@ func DumpWithBatch() {
 	}
 
 	for date := startDate; !date.After(endDate); date = date.AddDate(0, 0, 1) {
-		indexToDump := fmt.Sprintf("logs-%s", date.Format("2006.01.02"))
+		indexToDump := fmt.Sprintf(LogsIndexFormat, date.Format(DateFormat))
 		url := fmt.Sprintf("%s/%s/%s%s", config.Cfgs.DumpESAddr, indexToDump, option, scrollTime)
 		jsonBody, err := json.Marshal(requestBody)
 		if err != nil {
-			log.Fatalf("Error encoding JSON: %v", err)
+			log.Fatalf(ErrEncodingJSON, err)
 		}
 		result := esHttp.ESPost(jsonBody, url)
 		scrollRes := &ScrollResponse{}
 		if err := json.Unmarshal(result, &scrollRes); err != nil {
-			log.Fatalf("Error decoding response JSON: %v", err)
+			log.Fatalf(ErrDecodingResponseJSON, err)
 		}
 		HandleBatchData(scrollRes, indexToDump)
 	}
@@ -287,17 +287,17 @@ func HandleBatchData(scrollRes *ScrollResponse, index string) {
 		}
 
 		// 轉換時間格式
-		if startTime, err := time.Parse("2006-01-02T15:04:05-0700", source.StartTime); err == nil {
-			source.StartTime = startTime.UTC().Format("2006-01-02T15:04:05Z")
+		if startTime, err := time.Parse(TimeFormatInput, source.StartTime); err == nil {
+			source.StartTime = startTime.UTC().Format(TimeFormatOutput)
 		}
-		if endTime, err := time.Parse("2006-01-02T15:04:05-0700", source.EndTime); err == nil {
-			source.EndTime = endTime.UTC().Format("2006-01-02T15:04:05Z")
+		if endTime, err := time.Parse(TimeFormatInput, source.EndTime); err == nil {
+			source.EndTime = endTime.UTC().Format(TimeFormatOutput)
 		}
-		if modiTime, err := time.Parse("2006-01-02T15:04:05-0700", source.ModiTime); err == nil {
-			source.ModiTime = modiTime.UTC().Format("2006-01-02T15:04:05Z")
+		if modiTime, err := time.Parse(TimeFormatInput, source.ModiTime); err == nil {
+			source.ModiTime = modiTime.UTC().Format(TimeFormatOutput)
 		}
-		if importTime, err := time.Parse("2006-01-02T15:04:05-0700", source.ImportTime); err == nil {
-			source.ImportTime = importTime.UTC().Format("2006-01-02T15:04:05Z")
+		if importTime, err := time.Parse(TimeFormatInput, source.ImportTime); err == nil {
+			source.ImportTime = importTime.UTC().Format(TimeFormatOutput)
 		}
 
 		// 組合 auditNodes
@@ -311,11 +311,11 @@ func HandleBatchData(scrollRes *ScrollResponse, index string) {
 		source.AuditNodes = auditNodes
 
 		// 計算 over60s (使用轉換後的時間)
-		startTime, err := time.Parse("2006-01-02T15:04:05Z", source.StartTime)
+		startTime, err := time.Parse(TimeFormatOutput, source.StartTime)
 		if err != nil {
 			log.Printf("Warning: Failed to parse StartTime: %v", err)
 		}
-		endTime, err := time.Parse("2006-01-02T15:04:05Z", source.EndTime)
+		endTime, err := time.Parse(TimeFormatOutput, source.EndTime)
 		if err != nil {
 			log.Printf("Warning: Failed to parse EndTime: %v", err)
 		}
@@ -354,12 +354,12 @@ func HandleBatchData(scrollRes *ScrollResponse, index string) {
 		}
 		jsonBody, err := json.Marshal(requestBody)
 		if err != nil {
-			log.Fatalf("Error encoding JSON: %v", err)
+			log.Fatalf(ErrEncodingJSON, err)
 		}
 		result := esHttp.ESPost(jsonBody, url)
 		scrollRes = &ScrollResponse{}
 		if err := json.Unmarshal(result, &scrollRes); err != nil {
-			log.Fatalf("Error decoding response JSON: %v", err)
+			log.Fatalf(ErrDecodingResponseJSON, err)
 		}
 
 		// 處理當前批次資料
@@ -376,17 +376,17 @@ func HandleBatchData(scrollRes *ScrollResponse, index string) {
 			}
 
 			// 轉換時間格式
-			if startTime, err := time.Parse("2006-01-02T15:04:05-0700", source.StartTime); err == nil {
-				source.StartTime = startTime.UTC().Format("2006-01-02T15:04:05Z")
+			if startTime, err := time.Parse(TimeFormatInput, source.StartTime); err == nil {
+				source.StartTime = startTime.UTC().Format(TimeFormatOutput)
 			}
-			if endTime, err := time.Parse("2006-01-02T15:04:05-0700", source.EndTime); err == nil {
-				source.EndTime = endTime.UTC().Format("2006-01-02T15:04:05Z")
+			if endTime, err := time.Parse(TimeFormatInput, source.EndTime); err == nil {
+				source.EndTime = endTime.UTC().Format(TimeFormatOutput)
 			}
-			if modiTime, err := time.Parse("2006-01-02T15:04:05-0700", source.ModiTime); err == nil {
-				source.ModiTime = modiTime.UTC().Format("2006-01-02T15:04:05Z")
+			if modiTime, err := time.Parse(TimeFormatInput, source.ModiTime); err == nil {
+				source.ModiTime = modiTime.UTC().Format(TimeFormatOutput)
 			}
-			if importTime, err := time.Parse("2006-01-02T15:04:05-0700", source.ImportTime); err == nil {
-				source.ImportTime = importTime.UTC().Format("2006-01-02T15:04:05Z")
+			if importTime, err := time.Parse(TimeFormatInput, source.ImportTime); err == nil {
+				source.ImportTime = importTime.UTC().Format(TimeFormatOutput)
 			}
 
 			// 組合 auditNodes
@@ -400,11 +400,11 @@ func HandleBatchData(scrollRes *ScrollResponse, index string) {
 			source.AuditNodes = auditNodes
 
 			// 計算 over60s (使用轉換後的時間)
-			startTime, err := time.Parse("2006-01-02T15:04:05Z", source.StartTime)
+			startTime, err := time.Parse(TimeFormatOutput, source.StartTime)
 			if err != nil {
 				log.Printf("Warning: Failed to parse StartTime: %v", err)
 			}
-			endTime, err := time.Parse("2006-01-02T15:04:05Z", source.EndTime)
+			endTime, err := time.Parse(TimeFormatOutput, source.EndTime)
 			if err != nil {
 				log.Printf("Warning: Failed to parse EndTime: %v", err)
 			}
@@ -450,7 +450,7 @@ func writeBatchFile(data []Hit, index string, batchNum int) {
 	fileName := fmt.Sprintf("%s/%s_%d.json", config.Cfgs.DumpPath, index, batchNum)
 	jsonData, err := json.MarshalIndent(data, "", "    ")
 	if err != nil {
-		log.Fatalf("Error marshaling JSON: %v", err)
+		log.Fatalf(ErrEncodingJSON, err)
 	}
 
 	err = os.WriteFile(fileName, jsonData, 0644)

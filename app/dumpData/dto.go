@@ -1,5 +1,14 @@
 package dumpData
 
+const (
+	TimeFormatInput         = "2006-01-02T15:04:05-0700"
+	TimeFormatOutput        = "2006-01-02T15:04:05Z"
+	DateFormat              = "2006.01.02"
+	ErrDecodingResponseJSON = "Error decoding response JSON: %v"
+	ErrEncodingJSON         = "Error encoding JSON: %v"
+	LogsIndexFormat         = "logs-%s"
+)
+
 var (
 	importData []Hit
 	i          int = 1
