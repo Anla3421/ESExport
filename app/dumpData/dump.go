@@ -185,55 +185,100 @@ func HandleIndexString(IndexString string) time.Time {
 func DumpWithBatch() {
 	log.Println("dump with batch start")
 
+	startDate, endDate := setupDumpDates()
+	requestBody := createRequestBody()
+
+	processDumpByDate(startDate, endDate, requestBody)
+
+	log.Println("dump with batch finish")
+}
+
+// 處理檢查點並返回開始和結束日期
+func setupDumpDates() (time.Time, time.Time) {
+	// 檢查目錄下的檔案，找出最新的日期
+	processLatestCheckpoint()
+	startDate := HandleIndexString(config.Cfgs.DumpIndexStart)
+	endDate := HandleIndexString(config.Cfgs.DumpIndexEnd)
+	return startDate, endDate
+}
+
+// 讀取目錄並處理檢查點邏輯
+func processLatestCheckpoint() {
 	// 斷點續執行功能實做，檢查目錄下的檔案
 	files, err := os.ReadDir(config.Cfgs.DumpPath)
 	if err != nil {
-		if os.IsNotExist(err) {
-			// 目錄不存在，建立目錄
-			if err := os.MkdirAll(config.Cfgs.DumpPath, 0755); err != nil {
-				log.Fatalf("Failed to create directory: %v", err)
-			}
-		} else {
-			log.Fatalf("Failed to read directory: %v", err)
-		}
+		handleDirError(err)
+		return
 	}
 
-	var latestDate time.Time
 	if len(files) > 0 {
-		// 遍歷所有檔案找出最新日期
-		for _, file := range files {
-			if !file.IsDir() {
-				fileName := file.Name()
-				// 使用正則表達式匹配檔案名中的日期
-				re := regexp.MustCompile(`logs-(\d{4}\.\d{2}\.\d{2})`)
-				matches := re.FindStringSubmatch(fileName)
-				if len(matches) > 1 {
-					dateStr := matches[1]
-					date, err := time.Parse(DateFormat, dateStr)
-					if err != nil {
-						log.Printf("Warning: Failed to parse date from filename %s: %v", fileName, err)
-						continue
-					}
-					if latestDate.IsZero() || date.After(latestDate) {
-						latestDate = date
-					}
+		updateStartIndexFromFiles(files)
+	}
+}
+
+// 如果目錄不存在則創建，否則報錯
+func handleDirError(err error) {
+	if os.IsNotExist(err) {
+		// 目錄不存在，建立目錄
+		if err := os.MkdirAll(config.Cfgs.DumpPath, 0755); err != nil {
+			log.Fatalf("Failed to create directory: %v", err)
+		}
+	} else {
+		log.Fatalf("Failed to read directory: %v", err)
+	}
+}
+
+// updateStartIndexFromFiles 從文件更新起始索引
+func updateStartIndexFromFiles(files []os.DirEntry) {
+	// 遍歷所有檔案找出最新日期
+	latestDate := findLatestDate(files)
+	if !latestDate.IsZero() {
+		updateDumpIndexStart(latestDate)
+	}
+}
+
+// findLatestDate 查找最新日期
+func findLatestDate(files []os.DirEntry) time.Time {
+	var latestDate time.Time
+	// 使用正則表達式匹配檔案名中的日期
+	re := regexp.MustCompile(`logs-(\d{4}\.\d{2}\.\d{2})`)
+
+	for _, file := range files {
+		if !file.IsDir() {
+			if date := extractDateFromFileName(file.Name(), re); !date.IsZero() {
+				if latestDate.IsZero() || date.After(latestDate) {
+					latestDate = date
 				}
 			}
 		}
-		// 如果找到有效的最新日期，更新 DumpIndexStart
-		if !latestDate.IsZero() {
-			newStartIndex := fmt.Sprintf(LogsIndexFormat, latestDate.Format(DateFormat))
-			log.Printf("Found latest date in files: %s, updating DumpIndexStart", latestDate.Format(DateFormat))
-			config.Cfgs.DumpIndexStart = newStartIndex
-		}
 	}
+	return latestDate
+}
 
-	startDate := HandleIndexString(config.Cfgs.DumpIndexStart)
-	endDate := HandleIndexString(config.Cfgs.DumpIndexEnd)
+// extractDateFromFileName 從文件名提取日期
+func extractDateFromFileName(fileName string, re *regexp.Regexp) time.Time {
+	matches := re.FindStringSubmatch(fileName)
+	if len(matches) > 1 {
+		dateStr := matches[1]
+		date, err := time.Parse(DateFormat, dateStr)
+		if err != nil {
+			log.Printf("Warning: Failed to parse date from filename %s: %v", fileName, err)
+			return time.Time{}
+		}
+		return date
+	}
+	return time.Time{}
+}
 
-	option := "_search?ignore_unavailable=true&allow_no_indices=true&preference=_primary&"
-	scrollTime := "scroll=5m"
-	requestBody := map[string]interface{}{
+// updateDumpIndexStart 更新起始索引
+func updateDumpIndexStart(latestDate time.Time) {
+	newStartIndex := fmt.Sprintf(LogsIndexFormat, latestDate.Format(DateFormat))
+	log.Printf("Found latest date in files: %s, updating DumpIndexStart", latestDate.Format(DateFormat))
+	config.Cfgs.DumpIndexStart = newStartIndex
+}
+
+func createRequestBody() map[string]interface{} {
+	return map[string]interface{}{
 		"size": config.Cfgs.DumpPostSize,
 		"query": map[string]interface{}{
 			"bool": map[string]interface{}{
@@ -250,22 +295,35 @@ func DumpWithBatch() {
 			},
 		},
 	}
+}
+
+// processDumpByDate 按日期處理導出
+func processDumpByDate(startDate, endDate time.Time, requestBody map[string]interface{}) {
+	option := "_search?ignore_unavailable=true&allow_no_indices=true&preference=_primary&"
+	scrollTime := "scroll=5m"
 
 	for date := startDate; !date.After(endDate); date = date.AddDate(0, 0, 1) {
-		indexToDump := fmt.Sprintf(LogsIndexFormat, date.Format(DateFormat))
-		url := fmt.Sprintf("%s/%s/%s%s", config.Cfgs.DumpESAddr, indexToDump, option, scrollTime)
-		jsonBody, err := json.Marshal(requestBody)
-		if err != nil {
-			log.Fatalf(ErrEncodingJSON, err)
-		}
-		result := esHttp.ESPost(jsonBody, url)
-		scrollRes := &ScrollResponse{}
-		if err := json.Unmarshal(result, &scrollRes); err != nil {
-			log.Fatalf(ErrDecodingResponseJSON, err)
-		}
-		HandleBatchData(scrollRes, indexToDump)
+		processDateDump(date, option, scrollTime, requestBody)
 	}
-	log.Println("dump with batch finish")
+}
+
+// processDateDump 處理單個日期的導出
+func processDateDump(date time.Time, option, scrollTime string, requestBody map[string]interface{}) {
+	indexToDump := fmt.Sprintf(LogsIndexFormat, date.Format(DateFormat))
+	url := fmt.Sprintf("%s/%s/%s%s", config.Cfgs.DumpESAddr, indexToDump, option, scrollTime)
+
+	jsonBody, err := json.Marshal(requestBody)
+	if err != nil {
+		log.Fatalf(ErrEncodingJSON, err)
+	}
+
+	result := esHttp.ESPost(jsonBody, url)
+	scrollRes := &ScrollResponse{}
+	if err := json.Unmarshal(result, &scrollRes); err != nil {
+		log.Fatalf(ErrDecodingResponseJSON, err)
+	}
+
+	HandleBatchData(scrollRes, indexToDump)
 }
 
 // HandleBatchData 處理批次資料
